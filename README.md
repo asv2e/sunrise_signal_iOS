@@ -1,13 +1,6 @@
 # Sunrise Signal
 **Sunrise Signal** is a free and open-source app for tracking and understanding morning wood to gain better health insights. This app helps track daily habits, providing a deeper understanding of potential correlations between lifestyle choices and well-being.
 
-## Installation
-[<img src="https://github.com/machiav3lli/oandbackupx/blob/034b226cea5c1b30eb4f6a6f313e4dadcbb0ece4/badge_github.png"
-    alt="Get it on GitHub"
-    height="80">](https://github.com/avizitRX/sunrise_signal/releases)
-[<img src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png"
-    alt="Get it on F-Droid"
-    height="80">](https://f-droid.org/packages/com.avizitrx.sunrise.signal/)
 
 ## 🚀 Features
 -   **Interactive Calendar:** Log daily entries using emojis for quick and simple tracking.
