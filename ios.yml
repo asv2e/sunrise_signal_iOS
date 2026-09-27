@@ -19,10 +19,70 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Build IPA (Unsigned)
+      - name: Build iOS archive (Unsigned)
         run: flutter build ipa --no-codesign
 
-      - name: Upload IPA Artifact
+      - name: Package unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ARCHIVE_APP="$(find build/ios/archive/Runner.xcarchive/Products/Applications -maxdepth 1 -type d -name '*.app' -print -quit)"
+          if [[ -z "$ARCHIVE_APP" ]]; then
+            echo "ERROR: No .app was found in the Xcode archive." >&2
+            exit 1
+          fi
+
+          rm -rf build/ios/ipa/Payload
+          mkdir -p build/ios/ipa/Payload
+          cp -R "$ARCHIVE_APP" build/ios/ipa/Payload/
+
+          IPA_PATH="build/ios/ipa/sunrise-signal-ios-${GITHUB_RUN_NUMBER}.ipa"
+          (cd build/ios/ipa && /usr/bin/zip -qry "$(basename "$IPA_PATH")" Payload)
+
+          test -s "$IPA_PATH"
+          echo "Created unsigned IPA: $IPA_PATH"
+          echo "IPA_PATH=$IPA_PATH" >> "$GITHUB_ENV"
+
+      - name: Upload IPA to Filebin
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BIN="$(uuidgen | tr -d '-' | cut -c1-15 | tr '[:upper:]' '[:lower:]')"
+          FILENAME="$(basename "$IPA_PATH")"
+          FILEBIN_URL="https://filebin.net/${BIN}/${FILENAME}"
+          SHA256="$(shasum -a 256 "$IPA_PATH" | awk '{print $1}')"
+
+          echo "Uploading $IPA_PATH to Filebin..."
+          HTTP_STATUS="$(curl -sS --fail-with-body --retry 3 --retry-delay 2 \
+            -o /tmp/filebin-response.json \
+            -w '%{http_code}' \
+            -X POST \
+            -H "Content-Type: application/octet-stream" \
+            -H "Content-SHA256: ${SHA256}" \
+            --data-binary "@${IPA_PATH}" \
+            "$FILEBIN_URL")"
+
+          if [[ "$HTTP_STATUS" != "201" ]]; then
+            echo "ERROR: Filebin returned HTTP ${HTTP_STATUS}." >&2
+            cat /tmp/filebin-response.json >&2 || true
+            exit 1
+          fi
+
+          echo "Filebin upload succeeded (HTTP ${HTTP_STATUS})."
+          echo "Filebin download URL: $FILEBIN_URL"
+          echo "FILEBIN_URL=$FILEBIN_URL" >> "$GITHUB_ENV"
+
+          {
+            echo '### Filebin IPA upload'
+            echo
+            echo "[Download the unsigned IPA from Filebin](${FILEBIN_URL})"
+            echo
+            echo "SHA-256: \`${SHA256}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload IPA as GitHub artifact (backup)
         uses: actions/upload-artifact@v4
         with:
           name: sunrise-signal-ios
