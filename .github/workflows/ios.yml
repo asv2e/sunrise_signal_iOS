@@ -79,13 +79,14 @@ jobs:
           echo "IPA contents:"
           /usr/bin/unzip -l "$IPA_PATH" | head -40
 
-      - name: Upload IPA as GitHub artifact
-        uses: actions/upload-artifact@v4
+      - name: Upload IPA to GitHub release
+        uses: softprops/action-gh-release@v2
         with:
-          name: sunrise-signal-ios-${{ github.run_number }}
-          path: ${{ env.IPA_PATH }}
-          if-no-files-found: error
-          compression-level: 0
+          tag_name: ios-ipa-${{ github.run_number }}
+          name: Sunrise Signal iOS IPA ${{ github.run_number }}
+          draft: false
+          prerelease: false
+          files: ${{ env.IPA_PATH }}
 
       - name: Upload IPA to Filebin
         shell: bash
