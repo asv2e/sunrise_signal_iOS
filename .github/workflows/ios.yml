@@ -55,7 +55,8 @@ jobs:
           mkdir -p "$IPA_DIR/Payload"
           cp -R "$ARCHIVE_APP" "$IPA_DIR/Payload/"
 
-          # An IPA is a ZIP whose top-level directory is exactly Payload/.
+          # An .ipa is a ZIP archive whose root folder is Payload/.
+          # The output file itself must keep the .ipa extension.
           (
             cd "$IPA_DIR"
             /usr/bin/zip -qry "$(basename "$IPA_PATH")" Payload
@@ -63,6 +64,11 @@ jobs:
 
           if [[ ! -s "$IPA_PATH" ]]; then
             echo "ERROR: IPA packaging failed." >&2
+            exit 1
+          fi
+
+          if [[ "$IPA_PATH" != *.ipa ]]; then
+            echo "ERROR: Created file is not an .ipa archive." >&2
             exit 1
           fi
 
@@ -76,9 +82,10 @@ jobs:
       - name: Upload IPA as GitHub artifact
         uses: actions/upload-artifact@v4
         with:
-          name: sunrise-signal-ios
+          name: sunrise-signal-ios-${{ github.run_number }}
           path: ${{ env.IPA_PATH }}
           if-no-files-found: error
+          compression-level: 0
 
       - name: Upload IPA to Filebin
         shell: bash
