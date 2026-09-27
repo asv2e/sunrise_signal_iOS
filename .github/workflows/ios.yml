@@ -1,7 +1,7 @@
 name: Build iOS IPA
 
 on:
-  workflow_dispatch: # Allows you to trigger the build manually
+  workflow_dispatch:
 
 jobs:
   build:
@@ -14,16 +14,110 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          channel: 'stable'
+          channel: stable
 
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Build IPA (Unsigned)
+      - name: Build iOS archive (unsigned)
         run: flutter build ipa --no-codesign
 
-      - name: Upload IPA Artifact
+      - name: Package unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Searching for Xcode archive..."
+          ARCHIVE="$(find "$GITHUB_WORKSPACE/build/ios/archive" -maxdepth 1 -type d -name '*.xcarchive' -print -quit)"
+
+          if [[ -z "$ARCHIVE" ]]; then
+            echo "ERROR: Flutter did not create an .xcarchive." >&2
+            echo "Contents of build/ios:" >&2
+            find "$GITHUB_WORKSPACE/build/ios" -maxdepth 4 -print >&2 || true
+            exit 1
+          fi
+
+          echo "Archive: $ARCHIVE"
+
+          ARCHIVE_APP="$(find "$ARCHIVE/Products/Applications" -maxdepth 1 -type d -name '*.app' -print -quit)"
+          if [[ -z "$ARCHIVE_APP" ]]; then
+            echo "ERROR: No .app was found inside the archive." >&2
+            find "$ARCHIVE/Products" -maxdepth 4 -print >&2 || true
+            exit 1
+          fi
+
+          echo "App: $ARCHIVE_APP"
+
+          IPA_DIR="$GITHUB_WORKSPACE/build/ios/ipa"
+          IPA_PATH="$IPA_DIR/sunrise-signal-ios-${GITHUB_RUN_NUMBER}.ipa"
+
+          rm -rf "$IPA_DIR"
+          mkdir -p "$IPA_DIR/Payload"
+          cp -R "$ARCHIVE_APP" "$IPA_DIR/Payload/"
+
+          # An IPA is a ZIP whose top-level directory is exactly Payload/.
+          (
+            cd "$IPA_DIR"
+            /usr/bin/zip -qry "$(basename "$IPA_PATH")" Payload
+          )
+
+          if [[ ! -s "$IPA_PATH" ]]; then
+            echo "ERROR: IPA packaging failed." >&2
+            exit 1
+          fi
+
+          echo "Created: $IPA_PATH"
+          echo "Size: $(du -h "$IPA_PATH" | awk '{print $1}')"
+          echo "IPA_PATH=$IPA_PATH" >> "$GITHUB_ENV"
+
+          echo "IPA contents:"
+          /usr/bin/unzip -l "$IPA_PATH" | head -40
+
+      - name: Upload IPA as GitHub artifact
         uses: actions/upload-artifact@v4
         with:
           name: sunrise-signal-ios
-          path: build/ios/ipa/*.ipa
+          path: ${{ env.IPA_PATH }}
+          if-no-files-found: error
+
+      - name: Upload IPA to Filebin
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BIN="$(openssl rand -hex 8)"
+          FILENAME="$(basename "$IPA_PATH")"
+          FILEBIN_URL="https://filebin.net/${BIN}/${FILENAME}"
+
+          echo "Uploading $IPA_PATH"
+          echo "Filebin URL: $FILEBIN_URL"
+
+          HTTP_STATUS="$(curl -sS \
+            --retry 3 \
+            --retry-delay 2 \
+            --fail-with-body \
+            -o /tmp/filebin-response.txt \
+            -w '%{http_code}' \
+            -X POST \
+            -H 'Content-Type: application/octet-stream' \
+            --data-binary "@${IPA_PATH}" \
+            "${FILEBIN_URL}")"
+
+          if [[ ! "$HTTP_STATUS" =~ ^2[0-9][0-9]$ ]]; then
+            echo "ERROR: Filebin returned HTTP ${HTTP_STATUS}." >&2
+            cat /tmp/filebin-response.txt >&2 || true
+            exit 1
+          fi
+
+          SHA256="$(shasum -a 256 "$IPA_PATH" | awk '{print $1}')"
+
+          echo "Filebin upload succeeded (HTTP ${HTTP_STATUS})."
+          echo "SHA-256: ${SHA256}"
+
+          {
+            echo '### Filebin upload'
+            echo
+            echo "**IPA:** [${FILENAME}](${FILEBIN_URL})"
+            echo
+            echo "**SHA-256:** \\`${SHA256}\\`"
+          } >> "$GITHUB_STEP_SUMMARY"
